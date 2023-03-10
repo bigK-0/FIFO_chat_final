@@ -1,3 +1,9 @@
+/*
+  Pavorn Thongyoo 6480138
+  Pachara Akkanwanich 6480125
+  Panachai Kongja 6480068 
+  Pornlapat Thammarattanapruk 6381437
+*/
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,10 +11,20 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <signal.h>
 
 #define FFNAME12 "/tmp/fifo1to2"
 #define FFNAME21 "/tmp/fifo2to1"
 #define MAX_RBUF 80
+
+static pid_t child_pid;
+
+static void sigterm_handler(int signum) {
+    if (child_pid > 0) {
+        kill(child_pid, SIGTERM);
+    }
+    exit(EXIT_SUCCESS);
+}
 
 int main(int argc, char* argv[]) {
 
@@ -30,7 +46,6 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
   }
-  
 
   // Open the FIFO for reading and writing from 1 to 2
   if ((fd_rdwr12 = open(FFNAME12, O_RDWR)) == -1) {
@@ -43,13 +58,13 @@ int main(int argc, char* argv[]) {
       perror("open fails");
       exit(EXIT_FAILURE);
   }
-
   
-
+  // user 1
   if (user ==  1){
-    char rbuf[MAX_RBUF] = ""; //from terminal
+    char rbuf[MAX_RBUF] = ""; // buffer to store string from terminal
     
     pid_t pid = fork();
+    child_pid = pid;
     // fork fail
     if (pid < 0){
       fprintf(stderr, "Fork failed!\n");
@@ -63,7 +78,11 @@ int main(int argc, char* argv[]) {
       while(1){ 
         // read from fifo2to1
         if ((bytes_read = read(fd_rdwr21, cbuffer, BUFSIZ)) > 0){
-          if (strncmp(cbuffer,"end chat",8)==0) exit(0);
+          // if 'end chat', send signal to parent
+          if (strncmp(cbuffer,"end chat",8)==0){
+            kill(getppid(), SIGTERM);
+            exit(0);
+          } 
           printf("%s", cbuffer);
           memset(cbuffer, '\0', sizeof(cbuffer));
         }
@@ -79,7 +98,11 @@ int main(int argc, char* argv[]) {
         }
         // write into fifo1to2
         int bytes_written = write(fd_rdwr12, rbuf, strlen(rbuf));
-        if (strncmp(rbuf,"end chat",8)==0) exit(0);
+        // if 'end chat', receive signal from child and use the function to terminate child
+        if (strncmp(rbuf, "end chat", 8) == 0) {
+          signal(SIGTERM, sigterm_handler);
+          exit(0);
+        }
         if (bytes_written == -1) {
           perror("write fails");
           exit(EXIT_FAILURE);
@@ -89,10 +112,12 @@ int main(int argc, char* argv[]) {
     } // end parent
     
   } // end user 1
+  // user 2
   else if(user == 2){
-    char rbuf[MAX_RBUF] = ""; //from terminal
+    char rbuf[MAX_RBUF] = ""; // buffer to store string from terminal
     
     pid_t pid = fork();
+    child_pid = pid;
     // fork fail
     if (pid < 0){
       fprintf(stderr, "Fork failed!\n");
@@ -103,8 +128,13 @@ int main(int argc, char* argv[]) {
       char cbuffer[BUFSIZ + 1];
       memset(cbuffer, '\0', sizeof(cbuffer));
       while(1){ 
+        // read from fifo1to2
         if ((bytes_read = read(fd_rdwr12, cbuffer, BUFSIZ)) > 0){
-          if (strncmp(cbuffer,"end chat",8)==0) exit(0);
+           // if 'end chat', send signal to parent
+          if (strncmp(cbuffer,"end chat",8)==0){
+            kill(getppid(), SIGTERM);
+            exit(0);
+          }
           printf("%s", cbuffer);
           memset(cbuffer, '\0', sizeof(cbuffer));
         }
@@ -124,7 +154,11 @@ int main(int argc, char* argv[]) {
           perror("write fails");
           exit(EXIT_FAILURE);
         }
-        if (strncmp(rbuf,"end chat",8)==0) exit(0);
+        // if 'end chat', receive signal from child and use the function to terminate child
+        if (strncmp(rbuf, "end chat", 8) == 0) {
+          signal(SIGTERM, sigterm_handler);
+          exit(0);
+        }
         memset(rbuf, '\0', sizeof(rbuf));
       }
     } // end parent
